@@ -3,8 +3,10 @@ venv
 
 data/input/*
 !data/input/.gitkeep
+!data/input/example.jpg
 
 data/output/*
 !data/output/.gitkeep
+!data/output/example-*.jpg
 
 data/tmp
