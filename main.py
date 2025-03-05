@@ -2,13 +2,13 @@ import time
 
 import torch
 import torch.optim as optim
-import torchvision.transforms as transforms
 import torchvision.models as models
 from PIL import Image
 from torchvision.models import VGG19_Weights
+from torchvision.transforms.functional import to_pil_image
+from torchvision.transforms.functional import pil_to_tensor
 
 from src.Params import Params
-from src.Paint import Paint
 
 
 def get_device():
@@ -32,30 +32,58 @@ def load_model():
         '21': 'conv4_2', # Typically used for content loss to preserve structure
         '28': 'conv5_1' # Captures high-level stylistic elements (brushstrokes, shading)
     }
-    model = models.vgg19(weights=VGG19_Weights.DEFAULT).features[:29]
+    model = models.vgg19(weights=VGG19_Weights.DEFAULT).features
     for param in model.parameters():
         param.requires_grad = False
     return model, layers
 
-def load_image(image_path, max_size=512):
-    # Load an image as a tensor
+def get_norm(tensor):
+    mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1).to(tensor.device)
+    std = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1).to(tensor.device)
+    return mean, std
+
+def normalize(tensor):
+    mean, std = get_norm(tensor)
+    return (tensor - mean) / std
+
+def denormalize(tensor):
+    mean, std = get_norm(tensor)
+    return tensor * std + mean
+
+def load_image(image_path, max_size=None):
     image = Image.open(image_path).convert('RGB')
 
-    transform = transforms.Compose([
-        transforms.Resize(max_size),
-        transforms.ToTensor()
-    ])
+    w, h = image.size
+    if max_size is not None and max(w, h) > max_size:
+        scale_factor = max_size / max(w, h)
+        new_size = (int(w * scale_factor), int(h * scale_factor))
+        image = image.resize(new_size, Image.LANCZOS)
 
-    image = transform(image).unsqueeze(0)
-    return image
+    return image, (w, h)
 
-def save_image(tensor, image_path, show_image=True):
-    # Save and show an image from tensor
-    image = tensor.cpu().clone().detach().squeeze(0)
-    image = transforms.ToPILImage()(image)
+def load_image_tensor(image_path, device, max_size=None):
+    pil_image, orig_size = load_image(image_path, max_size)
+
+    tensor = pil_to_tensor(pil_image).float().div(255).unsqueeze(0).contiguous()
+    tensor = tensor.to(device)
+    tensor = normalize(tensor)
+
+    return tensor, orig_size
+
+def save_image(image, image_path, orig_size, show_image=True):
+    new_size = image.size
+    if new_size[0] < orig_size[0] or new_size[1] < orig_size[1]:
+        image = image.resize(orig_size, Image.BICUBIC)
+
     image.save(image_path)
     if show_image:
         image.show()
+
+def save_image_tensor(tensor, image_path, orig_size, show_image=True):
+    tensor = denormalize(tensor)
+    image = to_pil_image(tensor.squeeze(0).clamp(0, 1))
+
+    save_image(image, image_path, orig_size, show_image)
 
 def get_features(tensor, model, layers):
     # Get image features from model by layers
@@ -67,48 +95,58 @@ def get_features(tensor, model, layers):
             features[layers[name]] = x
     return features
 
-def content_loss(content, target):
-    return torch.mean((content - target) ** 2)
+def content_loss(gen, content):
+    return torch.nn.functional.mse_loss(gen, content)
+
+def compute_content_loss(features_gen, features_content, layer):
+    loss_c = content_loss(features_gen[layer], features_content[layer])
+    return loss_c
 
 def gram_matrix(tensor):
-    _, c, h, w = tensor.size()
-    tensor = tensor.view(c, h * w)
-    return torch.mm(tensor, tensor.t()) / (c * h * w)
+    b, c, h, w = tensor.shape
+    features = tensor.view(c, h * w)
+    gram = torch.mm(features, features.t())
+    return gram / (c * h * w)
 
 def style_loss(gen, style):
-    return torch.mean((gram_matrix(gen) - gram_matrix(style)) ** 2)
+    return torch.nn.functional.mse_loss(gram_matrix(gen), gram_matrix(style))
 
-def generate_styled_image(tensor_input, tensor_style, model, layers, steps = 150):
-    # Setup parameters
-    alpha = 0.8
-    beta = 90000
-    style_weights = {
-        "conv1_1": 6.0,
-        "conv2_1": 5.0,
-        "conv3_1": 12.0,
-        "conv4_1": 8.0,
-        "conv5_1": 2.0
+def compute_style_loss(features_gen, features_style, layers_weights):
+    loss_s = sum(
+        layers_weights[layer] * style_loss(features_gen[layer], features_style[layer])
+        for layer in layers_weights
+    )
+    return loss_s
+
+def generate_styled_image(tensor_input, tensor_style, model, layers, steps = 300):
+    # Classic parameters
+    content_weight = 1
+    content_layer = 'conv4_2'
+    style_weight = 1e5
+    style_layers_weights = {
+        'conv1_1': 1.0,
+        'conv2_1': 0.75,
+        'conv3_1': 0.2,
+        'conv4_1': 0.2,
+        'conv5_1': 0.2,
     }
-    start_input = 1 # 1..0
 
     features_style = get_features(tensor_style, model, layers)
-    features_input = get_features(tensor_input, model, layers)
+    features_content = get_features(tensor_input, model, layers)
 
-    tensor_output = (start_input * tensor_input + (1 - start_input) * tensor_style).clone().requires_grad_(True)
+    tensor_gen = tensor_input.clone().requires_grad_(True)
 
-    optimizer = optim.LBFGS([tensor_output])
+    optimizer = optim.LBFGS([tensor_gen])
 
     def closure():
         optimizer.zero_grad()
 
-        features_output = get_features(tensor_output, model, layers)
-        loss_c = content_loss(features_output['conv4_2'], features_input['conv4_2'])
+        features_gen = get_features(tensor_gen, model, layers)
 
-        loss_s = 0
-        for layer in style_weights:
-            loss_s += style_weights[layer] * style_loss(features_output[layer], features_style[layer])
+        loss_c = compute_content_loss(features_gen, features_content, content_layer)
+        loss_s = compute_style_loss(features_gen, features_style, style_layers_weights)
 
-        loss = alpha * loss_c + beta * loss_s
+        loss = content_weight * loss_c + style_weight * loss_s
         loss.backward()
 
         return loss
@@ -117,24 +155,20 @@ def generate_styled_image(tensor_input, tensor_style, model, layers, steps = 150
     start_time = time.time()
     for s in range(steps):
         optimizer.step(closure)
-
-        with torch.no_grad():
-            tensor_output.clamp_(0, 1)
-
         print(f"Step {s+1}/{steps} ({(s+1)/steps*100:.1f}%), time elapsed: {time.time() - start_time:.2f}s")
 
-    return tensor_output
+    return tensor_gen
 
 if __name__ == "__main__":
     params = Params.of_args()
 
     device = get_device()
 
-    print(f"Loading input image: {params.input_path}")
-    img_input = load_image(params.input_path).to(device)
-    print(f"Loading style image for \"{params.style_name}\": {params.style_path}")
-    img_style = load_image(params.style_path).to(device)
-    print(f"Output image path: {params.output_path} with post-processing: {params.post_process}")
+    print(f"Loading input image: {params.input_path}, size: {params.size}")
+    img_input, img_size = load_image_tensor(params.input_path, device, params.size)
+    print(f"Loading style image for \"{params.style_name}\": {params.style_path}, size: {params.size}")
+    img_style, _ = load_image_tensor(params.style_path, device, params.size)
+    print(f"Output image path: {params.output_path}")
 
     print("Loading model")
     vgg_model, vgg_layers = load_model()
@@ -142,9 +176,4 @@ if __name__ == "__main__":
 
     img_output = generate_styled_image(img_input, img_style, vgg_model, vgg_layers, params.steps)
     print(f"Saving styled image to: {params.output_path}")
-    save_image(img_output, params.output_path)
-
-    if params.post_process:
-        print(f"Post-processing styled image to: {params.output_post_path}")
-        Paint.match_histogram(params.output_path, params.style_path, params.output_post_path)
-        Paint.enhance_colors(params.output_post_path, params.output_post_path)
+    save_image_tensor(img_output, params.output_path, img_size, params.show)
