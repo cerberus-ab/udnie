@@ -1,26 +1,13 @@
-import torch
-
 from Params import Params
+from get_device import get_device
 from vgg import VGGFeatureExtractor
 from tensor_utils import load_image_tensor, save_image_tensor
 from transfer_style import transfer_style
 
-
-def get_device():
-    # Get the device to run the model on
-    if torch.cuda.is_available():
-        d_type = "cuda"
-    elif torch.backends.mps.is_available():
-        d_type = "mps"
-    else:
-        d_type = "cpu"
-    return torch.device(d_type)
-
 if __name__ == "__main__":
     params = Params.of_args()
 
-    device = get_device()
-    print(f"Using device: {device.type}")
+    device = get_device(params.device_type)
 
     print(f"Loading input image: {params.input_path}, size: {params.size}")
     t_input, orig_size = load_image_tensor(params.input_path, device, params.size)

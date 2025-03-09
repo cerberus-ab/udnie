@@ -26,6 +26,7 @@ class Params:
     style_path: str
     input_path: str
     output_path: str
+    device_type: str
     optim: str
     steps: int
     size: int
@@ -41,6 +42,8 @@ class Params:
                             help="Path to the input image")
         parser.add_argument("--style", type=str, choices=_style_map.keys(), default="udnie",
                             help="Style reference, By default: udnie")
+        parser.add_argument("--device", type=str, choices=("cpu", "cuda", "mps", "tpu"), default=None,
+                            help="Device type to run the model on, By default: the best available")
         parser.add_argument("--optim", type=str, choices=("lbfgs", "adam"), default="lbfgs",
                             help="Optimization algorithm, By default: lbfgs")
         parser.add_argument("--steps", type=int, default=300,
@@ -58,6 +61,7 @@ class Params:
             _style_map[args.style],
             args.input,
             output_path,
+            args.device,
             args.optim,
             args.steps,
             args.size,
