@@ -46,8 +46,8 @@ class Params:
                             help="Device type to run the model on, By default: the best available")
         parser.add_argument("--optim", type=str, choices=("lbfgs", "adam"), default="lbfgs",
                             help="Optimization algorithm, By default: lbfgs")
-        parser.add_argument("--steps", type=int, default=300,
-                            help="Number of optimization steps, By default: 300")
+        parser.add_argument("--steps", type=int, default=150,
+                            help="Number of optimization steps, By default: 150")
         parser.add_argument("--size", type=int, default=512,
                             help="Size of the images in the optimization, By default: 512")
         parser.add_argument("--show", action="store_true",

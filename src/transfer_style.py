@@ -4,21 +4,21 @@ import torch
 import torch.optim as optim
 
 
-def _content_loss(gen, content):
-    return torch.nn.functional.mse_loss(gen, content)
+def _content_loss(fm_gen, fm_content):
+    return torch.nn.functional.mse_loss(fm_gen, fm_content)
 
 def _compute_content_loss(fs_gen, fs_content, layer):
     loss_c = _content_loss(fs_gen[layer], fs_content[layer])
     return loss_c
 
-def _gram_matrix(t):
-    b, ch, h, w = t.shape
-    features = t.view(ch, h * w)
+def _gram_matrix(fm):
+    b, ch, h, w = fm.shape
+    features = fm.view(ch, h * w)
     gram = torch.mm(features, features.t())
     return gram / (ch * h * w)
 
-def _style_loss(gen, style):
-    return torch.nn.functional.mse_loss(_gram_matrix(gen), _gram_matrix(style))
+def _style_loss(fm_gen, fm_style):
+    return torch.nn.functional.mse_loss(_gram_matrix(fm_gen), _gram_matrix(fm_style))
 
 def _compute_style_loss(fs_gen, fs_style, layers_weights):
     loss_s = sum(
@@ -27,11 +27,16 @@ def _compute_style_loss(fs_gen, fs_style, layers_weights):
     )
     return loss_s
 
-def _compute_loss(fs_gen, fs_content, fs_style):
+def _compute_total_variation_loss(img):
+    loss_h = torch.sum(torch.abs(img[:, :, :-1, :] - img[:, :, 1:, :]))
+    loss_w = torch.sum(torch.abs(img[:, :, :, :-1] - img[:, :, :, 1:]))
+    return loss_h + loss_w
+
+def _compute_loss(img_gen, fs_gen, fs_content, fs_style):
     # Classic parameters
-    content_weight = 1
+    content_weight = 1 # alpha
     content_layer = 'conv4_2'
-    style_weight = 1e6
+    style_weight = 1e6 # beta
     style_layers_weights = {
         'conv1_1': 1.0,
         'conv2_1': 0.75,
@@ -39,11 +44,13 @@ def _compute_loss(fs_gen, fs_content, fs_style):
         'conv4_1': 0.2,
         'conv5_1': 0.2,
     }
+    tv_weight = 1e-6 # gamma
 
     loss_c = _compute_content_loss(fs_gen, fs_content, content_layer)
     loss_s = _compute_style_loss(fs_gen, fs_style, style_layers_weights)
+    loss_tv = _compute_total_variation_loss(img_gen)
 
-    loss = content_weight * loss_c + style_weight * loss_s
+    loss = content_weight * loss_c + style_weight * loss_s + tv_weight * loss_tv
     return loss
 
 def transfer_style_lbfgs(tensor_input, tensor_style, extract_features, steps):
@@ -58,7 +65,7 @@ def transfer_style_lbfgs(tensor_input, tensor_style, extract_features, steps):
     def closure():
         optimizer.zero_grad()
         features_gen = extract_features(tensor_gen)
-        loss = _compute_loss(features_gen, features_content, features_style)
+        loss = _compute_loss(tensor_gen, features_gen, features_content, features_style)
         loss.backward()
 
         return loss
@@ -90,7 +97,7 @@ def transfer_style_adam(tensor_input, tensor_style, extract_features, steps):
     for s in range(steps):
         optimizer.zero_grad()
         features_gen = extract_features(tensor_gen)
-        loss = _compute_loss(features_gen, features_content, features_style)
+        loss = _compute_loss(tensor_gen, features_gen, features_content, features_style)
         loss.backward()
         optimizer.step()
         if (s + 1) % 10 == 0:
