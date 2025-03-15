@@ -23,6 +23,8 @@ python src/nst.py --help
                         Style reference, By default: udnie
   --device {cpu,cuda,mps,tpu}
                         Device type to run the model on, By default: the best available
+  --init {input,random,blend}
+                        Method to create initial image for style transfer, By default: clone input
   --optim {lbfgs,adam}  Optimization algorithm, By default: lbfgs
   --steps STEPS         Number of optimization steps, By default: 150
   --size SIZE           Size of the images in the optimization, By default: 512

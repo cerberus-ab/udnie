@@ -12,10 +12,10 @@ _style_map = {
 }
 _output_dir = "data/output"
 
-def _get_output_path(input_path, style_name, optim, steps):
+def _get_output_path(input_path, style_name, init_method, optim, steps):
     # Creates output path for styled file
     input_name, input_ext = os.path.splitext(os.path.basename(input_path))
-    input_pref_name = f"{input_name}-{style_name}-{optim}-{steps}"
+    input_pref_name = f"{input_name}-{style_name}-{init_method}-{optim}-{steps}"
     output_path = f"{_output_dir}/{input_pref_name}{input_ext}"
 
     return output_path
@@ -27,6 +27,7 @@ class Params:
     input_path: str
     output_path: str
     device_type: str
+    init_method: str
     optim: str
     steps: int
     size: int
@@ -44,6 +45,8 @@ class Params:
                             help="Style reference, By default: udnie")
         parser.add_argument("--device", type=str, choices=("cpu", "cuda", "mps", "tpu"), default=None,
                             help="Device type to run the model on, By default: the best available")
+        parser.add_argument("--init", type=str, choices=("input", "random", "blend"), default="input",
+                            help="Method to create initial image for style transfer, By default: clone input")
         parser.add_argument("--optim", type=str, choices=("lbfgs", "adam"), default="lbfgs",
                             help="Optimization algorithm, By default: lbfgs")
         parser.add_argument("--steps", type=int, default=150,
@@ -54,7 +57,7 @@ class Params:
                             help="Show the styled image")
 
         args = parser.parse_args()
-        output_path = _get_output_path(args.input, args.style, args.optim, args.steps)
+        output_path = _get_output_path(args.input, args.style, args.init, args.optim, args.steps)
 
         return Params(
             args.style,
@@ -62,6 +65,7 @@ class Params:
             args.input,
             output_path,
             args.device,
+            args.init,
             args.optim,
             args.steps,
             args.size,

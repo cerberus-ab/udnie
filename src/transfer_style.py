@@ -33,7 +33,7 @@ def _compute_total_variation_loss(img):
     return loss_h + loss_w
 
 def _compute_loss(img_gen, fs_gen, fs_content, fs_style):
-    # Classic parameters
+    # Loss function parameters
     content_weight = 1 # alpha
     content_layer = 'conv4_2'
     style_weight = 1e6 # beta
@@ -53,19 +53,17 @@ def _compute_loss(img_gen, fs_gen, fs_content, fs_style):
     loss = content_weight * loss_c + style_weight * loss_s + tv_weight * loss_tv
     return loss
 
-def transfer_style_lbfgs(tensor_input, tensor_style, extract_features, steps):
+def transfer_style_lbfgs(t_gen, t_content, t_style, extract_features, steps):
     # Based on L-BFGS optimizer
-    features_content = extract_features(tensor_input)
-    features_style = extract_features(tensor_style)
+    features_content = extract_features(t_content)
+    features_style = extract_features(t_style)
 
-    tensor_gen = tensor_input.clone().requires_grad_(True)
-
-    optimizer = optim.LBFGS([tensor_gen])
+    optimizer = optim.LBFGS([t_gen])
 
     def closure():
         optimizer.zero_grad()
-        features_gen = extract_features(tensor_gen)
-        loss = _compute_loss(tensor_gen, features_gen, features_content, features_style)
+        features_gen = extract_features(t_gen)
+        loss = _compute_loss(t_gen, features_gen, features_content, features_style)
         loss.backward()
 
         return loss
@@ -76,40 +74,38 @@ def transfer_style_lbfgs(tensor_input, tensor_style, extract_features, steps):
         optimizer.step(closure)
         print(f"Step {s+1}/{steps} ({(s+1)/steps*100:.1f}%), time elapsed: {time.time() - start_time:.2f}s")
 
-    return tensor_gen
+    return t_gen
 
-def transfer_style_adam(tensor_input, tensor_style, extract_features, steps):
+def transfer_style_adam(t_gen, t_content, t_style, extract_features, steps):
     # Based on Adam optimizer
     adam_params = {
         'lr': 0.04,
         'betas': (0.8, 0.99),
         'eps': 1e-8
     }
-    features_content = extract_features(tensor_input)
-    features_style = extract_features(tensor_style)
+    features_content = extract_features(t_content)
+    features_style = extract_features(t_style)
 
-    tensor_gen = tensor_input.clone().requires_grad_(True)
-
-    optimizer = optim.Adam([tensor_gen], **adam_params)
+    optimizer = optim.Adam([t_gen], **adam_params)
 
     print(f"Generating styled image with {steps} steps of Adam optimizer")
     start_time = time.time()
     for s in range(steps):
         optimizer.zero_grad()
-        features_gen = extract_features(tensor_gen)
-        loss = _compute_loss(tensor_gen, features_gen, features_content, features_style)
+        features_gen = extract_features(t_gen)
+        loss = _compute_loss(t_gen, features_gen, features_content, features_style)
         loss.backward()
         optimizer.step()
         if (s + 1) % 10 == 0:
             print(f"Step {s+1}/{steps} ({(s+1)/steps*100:.1f}%), time elapsed: {time.time() - start_time:.2f}s")
 
-    return tensor_gen
+    return t_gen
 
-def transfer_style(tensor_input, tensor_style, extract_features, optim = 'lbfgs', steps = 300):
+def transfer_style(t_gen, t_content, t_style, extract_features, optim = 'lbfgs', steps = 300):
     # Transfer the style using the selected optimizer algorithm
     if optim == 'lbfgs':
-        return transfer_style_lbfgs(tensor_input, tensor_style, extract_features, steps)
+        return transfer_style_lbfgs(t_gen, t_content, t_style, extract_features, steps)
     elif optim == 'adam':
-        return transfer_style_adam(tensor_input, tensor_style, extract_features, steps)
+        return transfer_style_adam(t_gen, t_content, t_style, extract_features, steps)
     else:
         print(f"Unknown optimizer: {optim}")
