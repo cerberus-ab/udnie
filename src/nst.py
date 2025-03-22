@@ -1,5 +1,5 @@
 from Params import Params
-from get_device import get_device
+from device_utils import get_device, print_memory_usage
 from img_utils import load_image, save_image
 from vgg import VGGFeatureExtractor
 from tensor_utils import init_gen_tensor, image_to_tensor, tensor_to_image
@@ -28,3 +28,6 @@ if __name__ == "__main__":
     print(f"Saving styled image to: {params.output_path}")
     img_output = tensor_to_image(t_output)
     save_image(img_output, params.output_path, orig_size, params.show)
+
+    if params.track_memory:
+        print_memory_usage()

@@ -1,5 +1,6 @@
 import os
 
+import psutil
 import torch
 
 def _cuda_available():
@@ -10,6 +11,9 @@ def _mps_available():
 
 def _tpu_available():
     return "COLAB_TPU_ADDR" in os.environ or "XRT_TPU_CONFIG" in os.environ
+
+def _bytes_to_mb(bytes_value):
+    return bytes_value / (1024 * 1024)
 
 def get_device(device_type=None):
     # Get the device to run the model on
@@ -35,3 +39,38 @@ def get_device(device_type=None):
         return xm.xla_device()
     else:
         return torch.device(d_type)
+
+def get_memory_usage():
+    # Get memory usage
+    process = psutil.Process(os.getpid())
+    process_memory = _bytes_to_mb(process.memory_info().rss)
+
+    torch_memory = {}
+    if _cuda_available():
+        torch.cuda.synchronize()
+        torch_memory['cuda'] = {
+            'allocated': _bytes_to_mb(torch.cuda.memory_allocated()),
+            'reserved': _bytes_to_mb(torch.cuda.memory_reserved())
+        }
+
+    if hasattr(torch, 'mps') and hasattr(torch.mps, 'current_allocated_memory'):
+        torch_memory['mps'] = {
+            'allocated': _bytes_to_mb(torch.mps.current_allocated_memory())
+        }
+
+    return {
+        'process': process_memory,
+        'torch': torch_memory
+    }
+
+def print_memory_usage():
+    # Print memory usage
+    memory = get_memory_usage()
+    print(f"\nFinal memory usage:")
+    print(f"  Process memory: {memory['process']:.2f} MB")
+
+    for device, stats in memory['torch'].items():
+        print(f"  {device.upper()} memory:")
+        for key, value in stats.items():
+            print(f"    {key}: {value:.2f} MB")
+    print()

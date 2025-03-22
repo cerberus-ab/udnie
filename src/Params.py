@@ -32,6 +32,7 @@ class Params:
     steps: int
     size: int
     show: bool
+    track_memory: bool
 
     @staticmethod
     def of_args():
@@ -55,6 +56,8 @@ class Params:
                             help="Size of the images in the optimization, By default: 512")
         parser.add_argument("--show", action="store_true",
                             help="Show the styled image")
+        parser.add_argument("--track-memory", action="store_true",
+                            help="Track and display memory usage at the end of execution")
 
         args = parser.parse_args()
         output_path = _get_output_path(args.input, args.style, args.init, args.optim, args.steps)
@@ -69,4 +72,5 @@ class Params:
             args.optim,
             args.steps,
             args.size,
-            args.show)
+            args.show,
+            args.track_memory)
